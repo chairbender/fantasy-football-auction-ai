@@ -1,6 +1,8 @@
 """
 For developer testing.
 """
+from functools import reduce
+
 import numpy as np
 import gym
 import gym_fantasy_football_auction
@@ -13,19 +15,24 @@ from rl.agents.cem import CEMAgent
 from rl.memory import EpisodeParameterMemory
 
 ENV_NAME = 'FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0'
+#ENV_NAME = 'CartPole-v0'
 
 
 # Get the environment and extract the number of actions.
 env = gym.make(ENV_NAME)
+#env_my = gym.make('FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0')
 np.random.seed(123)
 env.seed(123)
 
-nb_actions = env.action_space.n
-obs_dim = env.observation_space.shape[0]
+nb_actions = reduce(lambda x, y: x + y, env.action_space.high)
+obs_dim = env.observation_space.shape
+
+#nb_actions = env.action_space.n
+#obs_dim = env.observation_space.shape[0]
 
 # Option 1 : Simple model
 model = Sequential()
-model.add(Flatten(input_shape=(1,) + env.observation_space.shape))
+model.add(Flatten(input_shape=(1,) + (env.observation_space.shape,)))
 model.add(Dense(nb_actions))
 model.add(Activation('softmax'))
 
