@@ -103,7 +103,7 @@ class ReinforcementLearningAgent:
             # check for it being solved
             if all(reward > .99 for reward in history['episode_reward']):
                 print("Solved in " + str(self.train_episodes) + " episodes of training.")
-                agent.save_weights('dqn_{}_params.h5f'.format(self.env.id), overwrite=True)
+                agent.save_weights('dqn_{}_params.h5f'.format(self.env.spec.id), overwrite=True)
                 plt.show()
                 break
 

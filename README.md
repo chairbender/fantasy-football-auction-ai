@@ -7,3 +7,10 @@ pip install .
 python learn.py
 ````
 
+# Performance
+
+This shows how long it takes to solve each task.
+
+| Task  | Agent | Episodes |
+| ------------------------------------------------------------------- | ------------------------------ | ----- |
+| FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0  | ShallowDQNFantasyFootballAgent | 23313 |
