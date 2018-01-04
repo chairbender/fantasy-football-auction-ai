@@ -14,44 +14,43 @@ from rl.callbacks import Callback
 from rl.memory import SequentialMemory
 from rl.policy import BoltzmannQPolicy
 
-class PlotWinrateCallback(Callback):
+class PlotRewardCallback(Callback):
     """
-    Keras-nl callback to use which plots winrate over time
+    Keras-nl callback to use which plots reward over time
     """
 
     def make_fig(self):
         plt.scatter(self.x, self.y)
+        plt.title('Total Test Reward per ' + str(self.every) + ' Episodes')
+        plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
+        plt.ylabel('Total Reward During Batch')
 
-    def __init__(self, every, max=200):
+    def __init__(self, every=100, max=200):
         """
 
         :param every: add a point after this number of episodes
-        :param max:  max number of episodes to keep in the plot at one time
+        :param max:  max number of points to keep in the plot at one time
         """
         super().__init__()
-        self.wincount = 0
-        self.turncount = 1
+        self.cumulative_reward = 0
+        self.ep_count = 0
         self.x = [0.]
         self.y = [0.]
-        self.i = 1
         self.every = every
         self.max = max
         plt.ion()
 
     def on_episode_end(self, episode, logs={}):
-        if logs['episode_reward'] >= .999:
-            self.wincount += 1
-        self.turncount += 1
-        if self.turncount % self.every == 0:
-            if self.i >= self.max:
+        self.ep_count += 1
+        self.cumulative_reward += logs['episode_reward']
+        if self.ep_count % self.every == 0:
+            if len(self.x) >= self.max:
                 del self.x[0]
                 del self.y[0]
-            self.x.append(self.i)
-            self.y.append(self.wincount / self.turncount)
+            self.x.append(self.ep_count / self.every)
+            self.y.append(self.cumulative_reward)
             drawnow(self.make_fig)
-            self.turncount = 0
-            self.wincount = 0
-            self.i += 1
+            self.cumulative_reward = 0
 
 
 class ReinforcementLearningAgent:
@@ -87,18 +86,19 @@ class ReinforcementLearningAgent:
         :param int train_steps: number of steps to train on before each round of testing
         :param int test_episodes: number of episodes to test on before going back to training
         :param boolean plot: whether to visually display a plot of the test winrate over time.
+        :return int: number of episodes taken to solve
         """
 
         agent = self.agent()
 
         plot_callbacks = []
         if plot:
-           plot_callbacks = [PlotWinrateCallback(test_episodes)]
+           plot_callbacks = [PlotRewardCallback(test_episodes)]
         while True:
             fit_history = agent.fit(self.env, nb_steps=train_steps, verbose=0, visualize=False).history
             self.train_episodes += len(fit_history['episode_reward'])
             self.total_steps += train_steps
-            print("Training steps: " + str(self.total_steps))
+            print("Training episodes: " + str(self.train_episodes))
             history = agent.test(self.env, nb_episodes=test_episodes, verbose=0, visualize=False, callbacks=plot_callbacks).history
             # check for it being solved
             if all(reward > .99 for reward in history['episode_reward']):
@@ -114,6 +114,15 @@ class ShallowDQNFantasyFootballAgent(ReinforcementLearningAgent):
 
     Capable of solving FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0
     """
+    def __init__(self, env, initial_weights_file=None):
+        """
+
+        :param env: Gym environment to learn in
+        :param str initial_weights: optional. path to the h5f file which contains the initial weights.
+        """
+        super().__init__(env)
+
+        self.initial_weights_file = initial_weights_file
 
     def agent(self):
         nb_actions = self.env.action_space.n
@@ -130,5 +139,8 @@ class ShallowDQNFantasyFootballAgent(ReinforcementLearningAgent):
                        enable_dueling_network=True,
                        target_model_update=1e-2, policy=BoltzmannQPolicy(), batch_size=128, train_interval=128)
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
+
+        if self.initial_weights_file is not None:
+            dqn.load_weights(self.initial_weights_file)
 
         return dqn
