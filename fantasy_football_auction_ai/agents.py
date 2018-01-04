@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from drawnow import drawnow
 
 from keras.models import Sequential
-from keras.layers import Dense, Flatten, Embedding
+from keras.layers import Dense, Flatten, Embedding, Activation
 from keras.optimizers import Adam
 from rl.agents import DQNAgent
 from rl.callbacks import Callback
@@ -52,19 +52,41 @@ class PlotRewardCallback(Callback):
             drawnow(self.make_fig)
             self.cumulative_reward = 0
 
+class CheckWinrateCallback(Callback):
+    """
+    Callback to check the winrate during testing
+    """
+    def __init__(self):
+        self.episode_count = 0
+        self.win_count = 0
+
+    def on_episode_end(self, episode, logs={}):
+        self.episode_count += 1
+        if self.env.is_winner():
+            self.win_count += 1
+
+    def winrate(self):
+        return 0 if self.episode_count == 0 else self.win_count / self.episode_count
+
+    def reset(self):
+        self.episode_count = 0
+        self.win_count = 0
+
 
 class ReinforcementLearningAgent:
     """
     Abstract class for an agent that can be trained and tested on an environment
     """
 
-    def __init__(self, env):
+    def __init__(self, env, skip_training=False):
         """
         :param Environment env: gym environment the agent will act in
+        :param boolean skip_training: if true, will test only, no training
         """
         self.env = env
         self.train_episodes = 0
         self.total_steps = 0
+        self.skip_training = skip_training
 
     @abc.abstractmethod
     def agent(self):
@@ -91,19 +113,23 @@ class ReinforcementLearningAgent:
 
         agent = self.agent()
 
-        plot_callbacks = []
+        test_callbacks = []
         if plot:
-           plot_callbacks = [PlotRewardCallback(test_episodes)]
+            test_callbacks = [PlotRewardCallback(test_episodes)]
+        winrate_callback = CheckWinrateCallback()
+        test_callbacks.append(winrate_callback)
         while True:
-            fit_history = agent.fit(self.env, nb_steps=train_steps, verbose=0, visualize=False).history
-            self.train_episodes += len(fit_history['episode_reward'])
-            self.total_steps += train_steps
-            print("Training episodes: " + str(self.train_episodes))
-            history = agent.test(self.env, nb_episodes=test_episodes, verbose=0, visualize=False, callbacks=plot_callbacks).history
+            if not self.skip_training:
+                fit_history = agent.fit(self.env, nb_steps=train_steps, verbose=0, visualize=False).history
+                self.train_episodes += len(fit_history['episode_reward'])
+                self.total_steps += train_steps
+                print("Training episodes: " + str(self.train_episodes))
+            winrate_callback.reset()
+            agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=True, callbacks=test_callbacks)
             # check for it being solved
-            if all(reward > .99 for reward in history['episode_reward']):
+            if winrate_callback.winrate() > .99:
                 print("Solved in " + str(self.train_episodes) + " episodes of training.")
-                agent.save_weights('dqn_{}_params.h5f'.format(self.env.spec.id), overwrite=True)
+                agent.save_weights('dqn_{}_{}_params.h5f'.format(self.env.spec.id, type(self).__name__), overwrite=True)
                 plt.show()
                 break
 
@@ -113,6 +139,41 @@ class ShallowDQNFantasyFootballAgent(ReinforcementLearningAgent):
     A shallow DQN (if that makes any sense).
 
     Capable of solving FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0
+    """
+    def __init__(self, env, initial_weights_file=None):
+        """
+
+        :param env: Gym environment to learn in
+        :param str initial_weights: optional. path to the h5f file which contains the initial weights. Will skip
+            training if this is the case (assumes you just want to test the trained agent)
+        """
+        super().__init__(env, initial_weights_file is not None)
+
+        self.initial_weights_file = initial_weights_file
+
+    def agent(self):
+        nb_actions = self.env.action_space.n
+        obs_dim = self.env.observation_space.shape
+        model = Sequential()
+        model.add(Flatten(input_shape=(1, obs_dim)))
+        model.add(Dense(nb_actions, activation='linear'))
+        print(model.summary())
+
+        memory = SequentialMemory(limit=50000, window_length=1)
+        dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=256,
+                       enable_dueling_network=True,
+                       target_model_update=1e-2, policy=BoltzmannQPolicy(), batch_size=128, train_interval=128)
+        dqn.compile(Adam(lr=1e-3), metrics=['mae'])
+
+        if self.initial_weights_file is not None:
+            dqn.load_weights(self.initial_weights_file)
+            self.train_episodes = 0
+
+        return dqn
+
+class DQNFantasyFootballAgent(ReinforcementLearningAgent):
+    """
+    A DQN
     """
     def __init__(self, env, initial_weights_file=None):
         """
@@ -129,8 +190,12 @@ class ShallowDQNFantasyFootballAgent(ReinforcementLearningAgent):
         obs_dim = self.env.observation_space.shape
         model = Sequential()
         model.add(Flatten(input_shape=(1, obs_dim)))
-        model.add(Embedding(201, 8, input_length=obs_dim))
-        model.add(Flatten())
+        model.add(Dense(16))
+        model.add(Activation('relu'))
+        model.add(Dense(16))
+        model.add(Activation('relu'))
+        model.add(Dense(16))
+        model.add(Activation('relu'))
         model.add(Dense(nb_actions, activation='linear'))
         print(model.summary())
 

@@ -13,4 +13,5 @@ This shows how long it takes to solve each task.
 
 | Task  | Agent | Episodes |
 | ------------------------------------------------------------------- | ------------------------------ | ----- |
-| FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0  | ShallowDQNFantasyFootballAgent | 11906 |
+| FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0 (reward 2.1)  | ShallowDQNFantasyFootballAgent | 423   |
+| FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0 (reward 1.1)  | ShallowDQNFantasyFootballAgent | 16658   |
