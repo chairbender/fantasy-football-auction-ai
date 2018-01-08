@@ -1,0 +1,3 @@
+[submodule "chess-alpha-zero"]
+	path = chess-alpha-zero
+	url = https://github.com/Zeta36/chess-alpha-zero.git

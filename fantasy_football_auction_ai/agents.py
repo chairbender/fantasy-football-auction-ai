@@ -126,6 +126,7 @@ class ReinforcementLearningAgent:
                 print("Training episodes: " + str(self.train_episodes))
             winrate_callback.reset()
             agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=True, callbacks=test_callbacks)
+            agent.save_weights('dqn_{}_{}_params.wip.h5f'.format(self.env.spec.id, type(self).__name__), overwrite=True)
             # check for it being solved
             if winrate_callback.winrate() > .99:
                 print("Solved in " + str(self.train_episodes) + " episodes of training.")
