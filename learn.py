@@ -16,8 +16,6 @@ ENV_NAME = 'FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0'
 
 # Get the environment and extract the number of actions.
 env = gym.make(ENV_NAME)
-nb_actions = env.action_space.n
-obs_dim = env.observation_space.shape
 
 #agent = ShallowDQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0_ShallowDQNFantasyFootballAgent_params.h5f')
 #agent = ShallowDQNFantasyFootballAgent(env)
@@ -57,3 +55,14 @@ agent.learn(plot=True)
 #TODO: Get ChessZero adapted to work here. Can use git submodule and can fork ChessZero as a start so I can modify it
 # myself.
 #TODO: add an environment without auction - just draft.
+
+#TODO: Consider making a keras-rl style version of AGZ so that it is parameterized. I.e so I can run chess,
+# go, or ff on it. In other words, make it able to work in a gym environment.
+
+#TODO: Look at AGZ paper - consider a 3d representation. Look at the architecture. Binary stack rather than
+# in sequence / flattened for "state" information for each player.
+
+# What if I can set up an agent for gym which can use the AGZ algorithm?
+
+# I don't like the gym approach. Too impractical. Need to be able to work with the env more directly. But the API
+# itself is fine. Just want to mess with the representation.

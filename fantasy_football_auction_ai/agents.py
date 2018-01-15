@@ -5,6 +5,8 @@ import abc
 import matplotlib.pyplot as plt
 from drawnow import drawnow
 
+import numpy as np
+
 from keras.models import Sequential
 from keras.layers import Dense, Flatten, Embedding, Activation
 from keras.optimizers import Adam
@@ -12,7 +14,8 @@ from rl.agents import DQNAgent
 from rl.callbacks import Callback
 
 from rl.memory import SequentialMemory
-from rl.policy import BoltzmannQPolicy
+from rl.policy import BoltzmannQPolicy, GreedyQPolicy
+
 
 class PlotRewardCallback(Callback):
     """
@@ -71,6 +74,45 @@ class CheckWinrateCallback(Callback):
     def reset(self):
         self.episode_count = 0
         self.win_count = 0
+
+class InformedBoltzmannQPolicy(BoltzmannQPolicy):
+    """
+    Just like BoltzmannQPolicy, but ignores actions which are illegal
+    """
+    def __init__(self, env, tau=1., clip=(-500., 500.)):
+        """
+
+        :param FantasyFootballAuctionEnv: gym environment to use to check for legal moves using
+            .action_legality()
+        :param tau: see parent
+        :param clip: see parent
+        """
+        super(self.__class__, self).__init__(tau, clip)
+        self.env = env
+
+    def select_action(self, q_values):
+        assert q_values.ndim == 1
+        q_values = q_values.astype('float64')
+        nb_actions = q_values.shape[0]
+
+        exp_values = np.exp(np.clip(q_values / self.tau, self.clip[0], self.clip[1]))
+        exp_values = np.multiply(exp_values, self.env.action_legality())
+        probs = exp_values / np.sum(exp_values)
+        action = np.random.choice(range(nb_actions), p=probs)
+        return action
+
+class InformedGreedyQPolicy(GreedyQPolicy):
+    """
+    Just like GreedyQPolicy but ignores invalid actions
+    """
+    def __init__(self, env):
+        self.env = env
+
+    def select_action(self, q_values):
+        assert q_values.ndim == 1
+        q_values = np.multiply(q_values, self.env.action_legality())
+        action = np.argmax(q_values)
+        return action
 
 
 class ReinforcementLearningAgent:
@@ -163,7 +205,8 @@ class ShallowDQNFantasyFootballAgent(ReinforcementLearningAgent):
         memory = SequentialMemory(limit=50000, window_length=1)
         dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=256,
                        enable_dueling_network=True,
-                       target_model_update=1e-2, policy=BoltzmannQPolicy(), batch_size=128, train_interval=128)
+                       target_model_update=1e-2, policy=InformedBoltzmannQPolicy(self.env),
+                       test_policy=InformedGreedyQPolicy(self.env), batch_size=128, train_interval=128)
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
         if self.initial_weights_file is not None:
@@ -188,9 +231,10 @@ class DQNFantasyFootballAgent(ReinforcementLearningAgent):
 
     def agent(self):
         nb_actions = self.env.action_space.n
-        obs_dim = self.env.observation_space.shape
+        obs_dim = len(self.env.observation_space.spaces)
+        obs_dim_2 = self.env.observation_space.spaces[0].shape
         model = Sequential()
-        model.add(Flatten(input_shape=(1, obs_dim)))
+        model.add(Flatten(input_shape=(1, obs_dim, obs_dim_2)))
         model.add(Dense(16))
         model.add(Activation('relu'))
         model.add(Dense(16))
@@ -203,7 +247,8 @@ class DQNFantasyFootballAgent(ReinforcementLearningAgent):
         memory = SequentialMemory(limit=50000, window_length=1)
         dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=256,
                        enable_dueling_network=True,
-                       target_model_update=1e-2, policy=BoltzmannQPolicy(), batch_size=128, train_interval=128)
+                       target_model_update=1e-2, policy=InformedBoltzmannQPolicy(self.env),
+                       test_policy=InformedGreedyQPolicy(self.env), batch_size=128, train_interval=128)
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
         if self.initial_weights_file is not None:
