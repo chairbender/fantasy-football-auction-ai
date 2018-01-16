@@ -1,20 +1,25 @@
 """
 Defines the agents that have been designed to solve fantasy football tasks
 """
+import cProfile
 import abc
 import matplotlib.pyplot as plt
 from drawnow import drawnow
 
 import numpy as np
+from keras import Input
 
 from keras.models import Sequential
-from keras.layers import Dense, Flatten, Embedding, Activation
+from keras.layers import Dense, Flatten, Embedding, Activation, Conv2D, BatchNormalization, Add
 from keras.optimizers import Adam
+from keras.regularizers import l2
 from rl.agents import DQNAgent
 from rl.callbacks import Callback
 
 from rl.memory import SequentialMemory
-from rl.policy import BoltzmannQPolicy, GreedyQPolicy
+from rl.policy import BoltzmannQPolicy, GreedyQPolicy, Model
+
+from fantasy_football_auction_ai.chess_zero.configs import normal, mini
 
 
 class PlotRewardCallback(Callback):
@@ -110,8 +115,14 @@ class InformedGreedyQPolicy(GreedyQPolicy):
 
     def select_action(self, q_values):
         assert q_values.ndim == 1
-        q_values = np.multiply(q_values, self.env.action_legality())
+        # since it's only doing argmax, we need this array to make large negative numbers
+        # for invalid actions
+        legality = (np.array(self.env.action_legality()) - 1) * 999
+        q_values = np.add(q_values, legality)
         action = np.argmax(q_values)
+        # TODO: Remove after debug
+        #if self.env.auction.bid is not None and self.env.bid_of_action(action) <= self.env.auction.bid:
+        #    raise Exception("Bid action taken which is less than max bid")
         return action
 
 
@@ -141,7 +152,7 @@ class ReinforcementLearningAgent:
         pass
 
 
-    def learn(self, train_steps=1000, test_episodes=100, plot=True):
+    def learn(self, train_steps=1000, test_episodes=5, plot=True):
         """
         Iteratively trains and tests until solved (defined as having a winrate of > .99 for test_episodes episodes.
 
@@ -162,12 +173,12 @@ class ReinforcementLearningAgent:
         test_callbacks.append(winrate_callback)
         while True:
             if not self.skip_training:
-                fit_history = agent.fit(self.env, nb_steps=train_steps, verbose=0, visualize=False).history
+                fit_history = agent.fit(self.env, nb_steps=train_steps, verbose=1, visualize=False).history
                 self.train_episodes += len(fit_history['episode_reward'])
                 self.total_steps += train_steps
                 print("Training episodes: " + str(self.train_episodes))
             winrate_callback.reset()
-            agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=True, callbacks=test_callbacks)
+            agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=False, callbacks=test_callbacks)
             agent.save_weights('dqn_{}_{}_params.wip.h5f'.format(self.env.spec.id, type(self).__name__), overwrite=True)
             # check for it being solved
             if winrate_callback.winrate() > .99:
@@ -252,6 +263,97 @@ class DQNFantasyFootballAgent(ReinforcementLearningAgent):
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
         if self.initial_weights_file is not None:
-            dqn.load_weights(self.initial_weights_file)
+            try:
+                dqn.load_weights(self.initial_weights_file)
+            except:
+                # just skip loading
+                pass
+
+        return dqn
+
+class ConvDQNFantasyFootballAgent(ReinforcementLearningAgent):
+    """
+    A DQN
+    """
+    def __init__(self, env, initial_weights_file=None):
+        """
+
+        :param env: Gym environment to learn in
+        :param str initial_weights: optional. path to the h5f file which contains the initial weights.
+        """
+        super().__init__(env)
+
+        self.initial_weights_file = initial_weights_file
+
+    def build(self):
+        """
+        Builds the full Keras model and stores it in self.model.
+        """
+        nb_actions = self.env.action_space.n
+        obs_dim = len(self.env.observation_space.spaces)
+        obs_dim_2 = self.env.observation_space.spaces[0].shape
+        mc = mini.ModelConfig()
+        in_x = x = Input((1, obs_dim, obs_dim_2))
+
+        # (batch, channels, height, width)
+        x = Conv2D(filters=mc.cnn_filter_num, kernel_size=(obs_dim, 1), strides=(obs_dim, 1), padding="same",
+                   data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
+                   name="input_conv-" + str(mc.cnn_first_filter_size) + "-" + str(mc.cnn_filter_num))(x)
+        x = BatchNormalization(axis=1, name="input_batchnorm")(x)
+        x = Activation("relu", name="input_relu")(x)
+
+        for i in range(mc.res_layer_num):
+            x = self._build_residual_block(x, i + 1)
+
+        res_out = x
+
+        # for policy output
+        x = Conv2D(filters=2, kernel_size=1, data_format="channels_first", use_bias=False,
+                   kernel_regularizer=l2(mc.l2_reg),
+                   name="policy_conv-1-2")(res_out)
+        x = BatchNormalization(axis=1, name="policy_batchnorm")(x)
+        x = Activation("relu", name="policy_relu")(x)
+        x = Flatten(name="policy_flatten")(x)
+        # no output for 'pass'
+        policy_out = Dense(nb_actions, kernel_regularizer=l2(mc.l2_reg), activation="softmax",
+                           name="policy_out")(x)
+
+        return Model(in_x, [policy_out], name="chess_model")
+
+    def _build_residual_block(self, x, index):
+        mc = mini.ModelConfig()
+        in_x = x
+        res_name = "res" + str(index)
+        x = Conv2D(filters=mc.cnn_filter_num, kernel_size=mc.cnn_filter_size, padding="same",
+                   data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
+                   name=res_name + "_conv1-" + str(mc.cnn_filter_size) + "-" + str(mc.cnn_filter_num))(x)
+        x = BatchNormalization(axis=1, name=res_name + "_batchnorm1")(x)
+        x = Activation("relu", name=res_name + "_relu1")(x)
+        x = Conv2D(filters=mc.cnn_filter_num, kernel_size=mc.cnn_filter_size, padding="same",
+                   data_format="channels_first", use_bias=False, kernel_regularizer=l2(mc.l2_reg),
+                   name=res_name + "_conv2-" + str(mc.cnn_filter_size) + "-" + str(mc.cnn_filter_num))(x)
+        x = BatchNormalization(axis=1, name="res" + str(index) + "_batchnorm2")(x)
+        x = Add(name=res_name + "_add")([in_x, x])
+        x = Activation("relu", name=res_name + "_relu2")(x)
+        return x
+
+    def agent(self):
+        nb_actions = self.env.action_space.n
+        model = self.build()
+        print(model.summary())
+
+        memory = SequentialMemory(limit=50000, window_length=1)
+        dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=32,
+                       enable_dueling_network=True,
+                       target_model_update=1e-2, policy=InformedBoltzmannQPolicy(self.env),
+                       test_policy=InformedGreedyQPolicy(self.env), batch_size=32, train_interval=32)
+        dqn.compile(Adam(lr=1e-3), metrics=['mae'])
+
+        if self.initial_weights_file is not None:
+            try:
+                dqn.load_weights(self.initial_weights_file)
+            except:
+                # just skip loading
+                pass
 
         return dqn

@@ -1,26 +1,32 @@
 """
 Trains the agent.
 """
+import cProfile
 import gym
 import random
 import numpy.random
 import gym_fantasy_football_auction
-from fantasy_football_auction_ai.agents import ShallowDQNFantasyFootballAgent, DQNFantasyFootballAgent
+from fantasy_football_auction_ai.agents import ShallowDQNFantasyFootballAgent, DQNFantasyFootballAgent, \
+    ConvDQNFantasyFootballAgent
 
 # set random seed so it is reproducible
 random.seed(123)
 numpy.random.seed(123)
 
 #ENV_NAME = 'FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0'
-ENV_NAME = 'FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0'
+ENV_NAME = 'FantasyFootballAuction-4OwnerMediumRosterSimpleScriptedOpponent-v0'
 
 # Get the environment and extract the number of actions.
 env = gym.make(ENV_NAME)
 
 #agent = ShallowDQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSingleRosterSimpleScriptedOpponent-v0_ShallowDQNFantasyFootballAgent_params.h5f')
 #agent = ShallowDQNFantasyFootballAgent(env)
-agent = DQNFantasyFootballAgent(env)
-agent.learn(plot=True)
+#agent = DQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0_DQNFantasyFootballAgent_params.wip.h5f')
+#agent = ConvDQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0_ConvDQNFantasyFootballAgent_params.wip.h5f')
+agent = ConvDQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-4OwnerMediumRosterSimpleScriptedOpponent-v0_ConvDQNFantasyFootballAgent_params.wip.h5f')
+
+#cProfile.run('agent.learn()', sort='tottime')
+agent.learn(plot=True,train_steps=5000,test_episodes=5)
 
 #DQN learning issues
 # things to consider
