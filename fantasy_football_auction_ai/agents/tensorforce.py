@@ -1,7 +1,6 @@
 """
-Defines the agents that have been designed to solve fantasy football tasks
+Defines agents which use the tensorforce library
 """
-import cProfile
 import abc
 import matplotlib.pyplot as plt
 from drawnow import drawnow
@@ -10,7 +9,7 @@ import numpy as np
 from keras import Input
 
 from keras.models import Sequential
-from keras.layers import Dense, Flatten, Embedding, Activation, Conv2D, BatchNormalization, Add
+from keras.layers import Dense, Flatten, Activation, Conv2D, BatchNormalization, Add
 from keras.optimizers import Adam
 from keras.regularizers import l2
 from rl.agents import DQNAgent
@@ -18,8 +17,6 @@ from rl.callbacks import Callback
 
 from rl.memory import SequentialMemory
 from rl.policy import BoltzmannQPolicy, GreedyQPolicy, Model
-
-from fantasy_football_auction_ai.chess_zero.configs import normal, mini
 
 
 class PlotRewardCallback(Callback):
@@ -126,7 +123,7 @@ class InformedGreedyQPolicy(GreedyQPolicy):
         return action
 
 
-class ReinforcementLearningAgent:
+class KerasRLAgent:
     """
     Abstract class for an agent that can be trained and tested on an environment
     """
@@ -188,7 +185,7 @@ class ReinforcementLearningAgent:
                 break
 
 
-class ShallowDQNFantasyFootballAgent(ReinforcementLearningAgent):
+class ShallowDQNFantasyFootballAgent(KerasRLAgent):
     """
     A shallow DQN (if that makes any sense).
 
@@ -226,7 +223,7 @@ class ShallowDQNFantasyFootballAgent(ReinforcementLearningAgent):
 
         return dqn
 
-class DQNFantasyFootballAgent(ReinforcementLearningAgent):
+class DQNFantasyFootballAgent(KerasRLAgent):
     """
     A DQN
     """
@@ -271,7 +268,7 @@ class DQNFantasyFootballAgent(ReinforcementLearningAgent):
 
         return dqn
 
-class ConvDQNFantasyFootballAgent(ReinforcementLearningAgent):
+class ConvDQNFantasyFootballAgent(KerasRLAgent):
     """
     A DQN
     """
