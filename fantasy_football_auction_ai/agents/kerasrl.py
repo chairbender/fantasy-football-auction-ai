@@ -16,7 +16,7 @@ from rl.agents import DQNAgent
 from rl.callbacks import Callback
 
 from rl.memory import SequentialMemory
-from rl.policy import BoltzmannQPolicy, GreedyQPolicy, Model
+from rl.policy import BoltzmannQPolicy, GreedyQPolicy, Model, BoltzmannGumbelQPolicy
 
 
 class PlotRewardCallback(Callback):
@@ -26,9 +26,9 @@ class PlotRewardCallback(Callback):
 
     def make_fig(self):
         plt.scatter(self.x, self.y)
-        plt.title('Total Test Reward per ' + str(self.every) + ' Episodes')
+        plt.title('Avg Test Reward per ' + str(self.every) + ' Episodes')
         plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
-        plt.ylabel('Total Reward During Batch')
+        plt.ylabel('Avg Reward During Batch')
 
     def __init__(self, every=100, max=200):
         """
@@ -53,7 +53,7 @@ class PlotRewardCallback(Callback):
                 del self.x[0]
                 del self.y[0]
             self.x.append(self.ep_count / self.every)
-            self.y.append(self.cumulative_reward)
+            self.y.append(self.cumulative_reward / self.every)
             drawnow(self.make_fig)
             self.cumulative_reward = 0
 
@@ -77,11 +77,20 @@ class CheckWinrateCallback(Callback):
         self.episode_count = 0
         self.win_count = 0
 
-class InformedBoltzmannQPolicy(BoltzmannQPolicy):
+class StepThroughCallback(Callback):
     """
-    Just like BoltzmannQPolicy, but ignores actions which are illegal
+    Callback to check the game state while testing
     """
-    def __init__(self, env, tau=1., clip=(-500., 500.)):
+
+    def on_step_end(self, step, logs={}):
+        self.env.render()
+        input("Press Enter key to continue...\n\n")
+
+class InformedBoltzmannGumbelQPolicy(BoltzmannGumbelQPolicy):
+    """
+    Just like BoltzmannGumbelQPolicy, but ignores actions which are illegal
+    """
+    def __init__(self, env, C=1.0):
         """
 
         :param FantasyFootballAuctionEnv: gym environment to use to check for legal moves using
@@ -89,18 +98,35 @@ class InformedBoltzmannQPolicy(BoltzmannQPolicy):
         :param tau: see parent
         :param clip: see parent
         """
-        super(self.__class__, self).__init__(tau, clip)
+        super(self.__class__, self).__init__(C)
         self.env = env
 
     def select_action(self, q_values):
-        assert q_values.ndim == 1
-        q_values = q_values.astype('float64')
-        nb_actions = q_values.shape[0]
+        # We can't use BGE during testing, since we don't have access to the
+        # action_counts at the end of training.
+        assert self.agent.training, "BoltzmannGumbelQPolicy should only be used for training, not testing"
 
-        exp_values = np.exp(np.clip(q_values / self.tau, self.clip[0], self.clip[1]))
-        exp_values = np.multiply(exp_values, self.env.action_legality())
-        probs = exp_values / np.sum(exp_values)
-        action = np.random.choice(range(nb_actions), p=probs)
+        assert q_values.ndim == 1, q_values.ndim
+        q_values = q_values.astype('float64')
+
+        # If we are starting training, we should reset the action_counts.
+        # Otherwise, action_counts should already be initialized, since we
+        # always do so when we begin training.
+        if self.agent.step == 0:
+            self.action_counts = np.ones(q_values.shape)
+        assert self.action_counts is not None, self.agent.step
+        assert self.action_counts.shape == q_values.shape, (self.action_counts.shape, q_values.shape)
+
+        beta = self.C / np.sqrt(self.action_counts)
+        Z = np.random.gumbel(size=q_values.shape)
+
+        perturbation = beta * Z
+        perturbed_q_values = q_values + perturbation
+        legality = (np.array(self.env.action_legality()) - 1) * 999
+        perturbed_q_values = np.add(perturbed_q_values, legality)
+        action = np.argmax(perturbed_q_values)
+
+        self.action_counts[action] += 1
         return action
 
 class InformedGreedyQPolicy(GreedyQPolicy):
@@ -117,9 +143,6 @@ class InformedGreedyQPolicy(GreedyQPolicy):
         legality = (np.array(self.env.action_legality()) - 1) * 999
         q_values = np.add(q_values, legality)
         action = np.argmax(q_values)
-        # TODO: Remove after debug
-        #if self.env.auction.bid is not None and self.env.bid_of_action(action) <= self.env.auction.bid:
-        #    raise Exception("Bid action taken which is less than max bid")
         return action
 
 
@@ -128,15 +151,18 @@ class KerasRLAgent:
     Abstract class for an agent that can be trained and tested on an environment
     """
 
-    def __init__(self, env, skip_training=False):
+    def __init__(self, env, skip_training=False, step_through_test=False):
         """
         :param Environment env: gym environment the agent will act in
         :param boolean skip_training: if true, will test only, no training
+        :param boolean step_through_test: if true, during test, pauses for input after each action taken by the agent
+            and prints the game state
         """
         self.env = env
         self.train_episodes = 0
         self.total_steps = 0
         self.skip_training = skip_training
+        self.step_through_test = step_through_test
 
     @abc.abstractmethod
     def agent(self):
@@ -168,6 +194,8 @@ class KerasRLAgent:
             test_callbacks = [PlotRewardCallback(test_episodes)]
         winrate_callback = CheckWinrateCallback()
         test_callbacks.append(winrate_callback)
+        if self.step_through_test:
+            test_callbacks.append(StepThroughCallback())
         while True:
             if not self.skip_training:
                 fit_history = agent.fit(self.env, nb_steps=train_steps, verbose=1, visualize=False).history
@@ -175,7 +203,7 @@ class KerasRLAgent:
                 self.total_steps += train_steps
                 print("Training episodes: " + str(self.train_episodes))
             winrate_callback.reset()
-            agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=False, callbacks=test_callbacks)
+            agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=True, callbacks=test_callbacks)
             agent.save_weights('dqn_{}_{}_params.wip.h5f'.format(self.env.spec.id, type(self).__name__), overwrite=True)
             # check for it being solved
             if winrate_callback.winrate() > .99:
@@ -213,7 +241,7 @@ class ShallowDQNFantasyFootballAgent(KerasRLAgent):
         memory = SequentialMemory(limit=50000, window_length=1)
         dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=256,
                        enable_dueling_network=True,
-                       target_model_update=1e-2, policy=InformedBoltzmannQPolicy(self.env),
+                       target_model_update=1e-2, policy=InformedBoltzmannGumbelQPolicy(self.env),
                        test_policy=InformedGreedyQPolicy(self.env), batch_size=128, train_interval=128)
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
@@ -255,7 +283,7 @@ class DQNFantasyFootballAgent(KerasRLAgent):
         memory = SequentialMemory(limit=50000, window_length=1)
         dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=256,
                        enable_dueling_network=True,
-                       target_model_update=1e-2, policy=InformedBoltzmannQPolicy(self.env),
+                       target_model_update=1e-2, policy=InformedBoltzmannGumbelQPolicy(self.env),
                        test_policy=InformedGreedyQPolicy(self.env), batch_size=128, train_interval=128)
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
@@ -269,16 +297,16 @@ class DQNFantasyFootballAgent(KerasRLAgent):
         return dqn
 
 
-class Conv2DQNFantasyFootballAgent(KerasRLAgent):
+class ConvDQNFantasyFootballAgent(KerasRLAgent):
     """
     A DQN
     """
-    def __init__(self, env, initial_weights_file=None):
+    def __init__(self, env, initial_weights_file=None, step_through_test=False):
         """
         :param env: Gym environment to learn in
         :param str initial_weights: optional. path to the h5f file which contains the initial weights.
         """
-        super().__init__(env)
+        super().__init__(env, step_through_test=step_through_test)
 
         self.initial_weights_file = initial_weights_file
 
@@ -305,9 +333,9 @@ class Conv2DQNFantasyFootballAgent(KerasRLAgent):
 
         res_out = x
 
-        # for policy output
+        # for Q value output
         x = Permute((2,1,3))(res_out)
-        x = Conv2D(filters=2, kernel_size=1, data_format="channels_first", use_bias=False,
+        x = Conv2D(filters=4, kernel_size=1, data_format="channels_first", use_bias=False,
                    kernel_regularizer=l2(1e-4),
                    name="policy_conv-1-2")(x)
         x = BatchNormalization(axis=1, name="policy_batchnorm")(x)
@@ -343,7 +371,7 @@ class Conv2DQNFantasyFootballAgent(KerasRLAgent):
         memory = SequentialMemory(limit=50000, window_length=1)
         dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=32,
                        enable_dueling_network=True,
-                       target_model_update=1e-2, policy=InformedBoltzmannQPolicy(self.env),
+                       target_model_update=1e-2, policy=InformedBoltzmannGumbelQPolicy(self.env),
                        test_policy=InformedGreedyQPolicy(self.env), batch_size=32, train_interval=32)
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
