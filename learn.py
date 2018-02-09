@@ -40,7 +40,7 @@ register(
     }
 )
 
-#Won
+#Won in 1700 episodes
 register(
     id='TestEnv-v1',
     entry_point='gym_fantasy_football_auction.envs:FantasyFootballAuctionEnv',
@@ -56,7 +56,7 @@ register(
     }
 )
 
-
+#Won in 1986 episodes
 register(
     id='TestEnv-v2',
     entry_point='gym_fantasy_football_auction.envs:FantasyFootballAuctionEnv',
@@ -88,3 +88,11 @@ agent = ConvDQNFantasyFootballAgent(env, 'dqn_TestEnv-v2_ConvDQNFantasyFootballA
 
 #cProfile.run('agent.learn()', sort='tottime')
 agent.learn(plot=True,train_steps=1000, test_episodes=10)
+
+#Alternate learning approach - use this instead to ensure that it learns in each environment that
+# previous models have been able to learn, after adjusting the model itself
+ENV_NAMES = ['TestEnv-v0', 'TestEnv-v1']
+
+#for env_name in ENV_NAMES:
+#    env = gym.make(ENV_NAME)
+#    agent.learn(plot=True, train_steps=1000, test_episodes=10)

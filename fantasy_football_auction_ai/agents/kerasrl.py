@@ -57,18 +57,39 @@ class PlotRewardCallback(Callback):
             drawnow(self.make_fig)
             self.cumulative_reward = 0
 
-class CheckWinrateCallback(Callback):
+class CheckAndPlotWinrateCallback(Callback):
     """
-    Callback to check the winrate during testing
+    Callback to check the winrate during testing and plot it
     """
-    def __init__(self):
+    def __init__(self, every=100, max=200):
         self.episode_count = 0
         self.win_count = 0
+        self.ep_count = 0
+        self.x = [0.]
+        self.y = [0.]
+        self.every = every
+        self.max = max
+        plt.ion()
+
+    def make_fig(self):
+        plt.scatter(self.x, self.y)
+        plt.title('Win Rate per ' + str(self.every) + ' Episodes')
+        plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
+        plt.ylabel('Win Rate During Batch')
 
     def on_episode_end(self, episode, logs={}):
         self.episode_count += 1
         if self.env.is_winner():
             self.win_count += 1
+        self.ep_count += 1
+        self.cumulative_reward += logs['episode_reward']
+        if self.ep_count % self.every == 0:
+            if len(self.x) >= self.max:
+                del self.x[0]
+                del self.y[0]
+            self.x.append(self.ep_count / self.every)
+            self.y.append(self.win_count / self.every)
+            drawnow(self.make_fig)
 
     def winrate(self):
         return 0 if self.episode_count == 0 else self.win_count / self.episode_count
