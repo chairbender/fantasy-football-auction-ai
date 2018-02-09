@@ -73,9 +73,25 @@ register(
     }
 )
 
+register(
+    id='TestEnv-v3',
+    entry_point='gym_fantasy_football_auction.envs:FantasyFootballAuctionEnv',
+    reward_threshold=5.0,
+
+    kwargs={
+        'opponents': [SimpleScriptedFantasyFootballAgent(30, 0.5, 0.05),
+                      SimpleScriptedFantasyFootballAgent(30, 0.5, 0.05),
+                      SimpleScriptedFantasyFootballAgent(30, 0.5, 0.05)],
+        'players': players, 'money': 30,
+        'roster': [RosterSlot.QB, RosterSlot.QB, RosterSlot.QB],
+        'starter_value': 1,
+        'reward_function': '1'
+    }
+)
+
 #performance -
 
-ENV_NAME = 'TestEnv-v2'
+ENV_NAME = 'TestEnv-v3'
 
 # Get the environment and extract the number of actions.
 env = gym.make(ENV_NAME)
@@ -84,10 +100,10 @@ env = gym.make(ENV_NAME)
 #agent = ShallowDQNFantasyFootballAgent(env)
 #agent = DQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0_DQNFantasyFootballAgent_params.wip.h5f')
 #agent = ConvDQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0_ConvDQNFantasyFootballAgent_params.wip.h5f')
-agent = ConvDQNFantasyFootballAgent(env, 'dqn_TestEnv-v2_ConvDQNFantasyFootballAgent_params.wip.h5f', step_through_test=False)
+agent = ConvDQNFantasyFootballAgent(env, 'dqn_{}_ConvDQNFantasyFootballAgent_params.wip.h5f'.format(ENV_NAME), step_through_test=False)
 
 #cProfile.run('agent.learn()', sort='tottime')
-agent.learn(plot=True,train_steps=1000, test_episodes=10)
+agent.learn(plot=True,train_steps=100, test_episodes=10)
 
 #Alternate learning approach - use this instead to ensure that it learns in each environment that
 # previous models have been able to learn, after adjusting the model itself

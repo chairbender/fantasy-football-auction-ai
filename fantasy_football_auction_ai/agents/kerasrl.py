@@ -19,16 +19,22 @@ from rl.memory import SequentialMemory
 from rl.policy import BoltzmannQPolicy, GreedyQPolicy, Model, BoltzmannGumbelQPolicy
 
 
-class PlotRewardCallback(Callback):
+class PlotAllCallback(Callback):
     """
-    Keras-nl callback to use which plots reward over time
+    Keras-nl callback to use which plots what happens over time
     """
 
     def make_fig(self):
-        plt.scatter(self.x, self.y)
+        plt.subplot(2,1,1)
+        plt.scatter(self.x, self.y_reward)
         plt.title('Avg Test Reward per ' + str(self.every) + ' Episodes')
         plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
         plt.ylabel('Avg Reward During Batch')
+        plt.subplot(2, 1, 2)
+        plt.scatter(self.x, self.y_wins)
+        plt.title('Winrate per ' + str(self.every) + ' Episodes')
+        plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
+        plt.ylabel('Winrate During Batch')
 
     def __init__(self, every=100, max=200):
         """
@@ -40,56 +46,43 @@ class PlotRewardCallback(Callback):
         self.cumulative_reward = 0
         self.ep_count = 0
         self.x = [0.]
-        self.y = [0.]
+        self.y_reward = [0.]
+        self.y_wins = [0.]
         self.every = every
         self.max = max
+        self.wins = 0
         plt.ion()
+
 
     def on_episode_end(self, episode, logs={}):
         self.ep_count += 1
         self.cumulative_reward += logs['episode_reward']
+        if self.env.is_winner():
+            self.wins += 1
         if self.ep_count % self.every == 0:
             if len(self.x) >= self.max:
                 del self.x[0]
-                del self.y[0]
+                del self.y_wins[0]
+                del self.y_reward[0]
             self.x.append(self.ep_count / self.every)
-            self.y.append(self.cumulative_reward / self.every)
+            self.y_reward.append(self.cumulative_reward / self.every)
+            self.y_wins.append(self.wins / self.every)
             drawnow(self.make_fig)
             self.cumulative_reward = 0
+            self.wins = 0
 
-class CheckAndPlotWinrateCallback(Callback):
+class CheckWinrateCallback(Callback):
     """
-    Callback to check the winrate during testing and plot it
+    Callback to check the winrate during testing
     """
-    def __init__(self, every=100, max=200):
+    def __init__(self):
         self.episode_count = 0
         self.win_count = 0
-        self.ep_count = 0
-        self.x = [0.]
-        self.y = [0.]
-        self.every = every
-        self.max = max
-        plt.ion()
-
-    def make_fig(self):
-        plt.scatter(self.x, self.y)
-        plt.title('Win Rate per ' + str(self.every) + ' Episodes')
-        plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
-        plt.ylabel('Win Rate During Batch')
 
     def on_episode_end(self, episode, logs={}):
         self.episode_count += 1
         if self.env.is_winner():
             self.win_count += 1
-        self.ep_count += 1
-        self.cumulative_reward += logs['episode_reward']
-        if self.ep_count % self.every == 0:
-            if len(self.x) >= self.max:
-                del self.x[0]
-                del self.y[0]
-            self.x.append(self.ep_count / self.every)
-            self.y.append(self.win_count / self.every)
-            drawnow(self.make_fig)
 
     def winrate(self):
         return 0 if self.episode_count == 0 else self.win_count / self.episode_count
@@ -212,7 +205,7 @@ class KerasRLAgent:
 
         test_callbacks = []
         if plot:
-            test_callbacks = [PlotRewardCallback(test_episodes)]
+            test_callbacks = [PlotAllCallback(test_episodes)]
         winrate_callback = CheckWinrateCallback()
         test_callbacks.append(winrate_callback)
         if self.step_through_test:
@@ -224,7 +217,7 @@ class KerasRLAgent:
                 self.total_steps += train_steps
                 print("Training episodes: " + str(self.train_episodes))
             winrate_callback.reset()
-            agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=True, callbacks=test_callbacks)
+            agent.test(self.env, nb_episodes=test_episodes, verbose=2, visualize=False, callbacks=test_callbacks)
             agent.save_weights('dqn_{}_{}_params.wip.h5f'.format(self.env.spec.id, type(self).__name__), overwrite=True)
             # check for it being solved
             if winrate_callback.winrate() > .99:
