@@ -4,7 +4,6 @@ Defines agents which use the kerasrl library
 import abc
 import matplotlib.pyplot as plt
 from drawnow import drawnow
-
 import numpy as np
 from keras import Input
 
@@ -25,22 +24,28 @@ class PlotAllCallback(Callback):
     """
 
     def make_fig(self):
-        plt.subplot(2,1,1)
+        plt.subplot2grid((2, 1), (0, 0))
         plt.scatter(self.x, self.y_reward)
         plt.title('Avg Test Reward per ' + str(self.every) + ' Episodes')
         plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
         plt.ylabel('Avg Reward During Batch')
-        plt.subplot(2, 1, 2)
+        plt.subplot2grid((2, 1), (1, 0))
         plt.scatter(self.x, self.y_wins)
         plt.title('Winrate per ' + str(self.every) + ' Episodes')
         plt.xlabel('Test Batch (' + str(self.every) + ' Episodes per Batch)')
         plt.ylabel('Winrate During Batch')
 
-    def __init__(self, every=100, max=200):
+        # visualize first conv filter weights
+        #plt.subplot2grid((2, 3), (0, 1), rowspan=2, colspan=2)
+        #cnn_weights = np.squeeze(self.model.model.layers[2].get_weights())
+        #plt.imshow(cnn_weights, interpolation="nearest", aspect="auto")
+
+    def __init__(self, every=100, max=200, visualize=False):
         """
 
         :param every: add a point after this number of episodes
         :param max:  max number of points to keep in the plot at one time
+        :param boolean visualize: whether to print at the end of each episode.
         """
         super().__init__()
         self.cumulative_reward = 0
@@ -51,12 +56,15 @@ class PlotAllCallback(Callback):
         self.every = every
         self.max = max
         self.wins = 0
+        self.visualize = visualize
         plt.ion()
 
 
     def on_episode_end(self, episode, logs={}):
         self.ep_count += 1
         self.cumulative_reward += logs['episode_reward']
+        if self.visualize:
+            self.env.render()
         if self.env.is_winner():
             self.wins += 1
         if self.ep_count % self.every == 0:
@@ -70,6 +78,7 @@ class PlotAllCallback(Callback):
             drawnow(self.make_fig)
             self.cumulative_reward = 0
             self.wins = 0
+
 
 class CheckWinrateCallback(Callback):
     """
@@ -99,6 +108,33 @@ class StepThroughCallback(Callback):
     def on_step_end(self, step, logs={}):
         self.env.render()
         input("Press Enter key to continue...\n\n")
+
+
+class InformedBoltzmannQPolicy(BoltzmannQPolicy):
+    """
+    Just like BoltzmannQPolicy, but ignores actions which are illegal
+    """
+    def __init__(self, env, tau=1., clip=(-500., 500.)):
+        """
+
+        :param FantasyFootballAuctionEnv: gym environment to use to check for legal moves using
+            .action_legality()
+        :param tau: see parent
+        :param clip: see parent
+        """
+        super(self.__class__, self).__init__(tau, clip)
+        self.env = env
+
+    def select_action(self, q_values):
+        assert q_values.ndim == 1
+        q_values = q_values.astype('float64')
+        nb_actions = q_values.shape[0]
+
+        exp_values = np.exp(np.clip(q_values / self.tau, self.clip[0], self.clip[1]))
+        exp_values = np.multiply(exp_values, self.env.action_legality())
+        probs = exp_values / np.sum(exp_values)
+        action = np.random.choice(range(nb_actions), p=probs)
+        return action
 
 class InformedBoltzmannGumbelQPolicy(BoltzmannGumbelQPolicy):
     """
@@ -165,7 +201,7 @@ class KerasRLAgent:
     Abstract class for an agent that can be trained and tested on an environment
     """
 
-    def __init__(self, env, skip_training=False, step_through_test=False):
+    def __init__(self, env, skip_training=False, step_through_test=False, visualize=False):
         """
         :param Environment env: gym environment the agent will act in
         :param boolean skip_training: if true, will test only, no training
@@ -177,6 +213,7 @@ class KerasRLAgent:
         self.total_steps = 0
         self.skip_training = skip_training
         self.step_through_test = step_through_test
+        self.visualize=True
 
     @abc.abstractmethod
     def agent(self):
@@ -205,7 +242,7 @@ class KerasRLAgent:
 
         test_callbacks = []
         if plot:
-            test_callbacks = [PlotAllCallback(test_episodes)]
+            test_callbacks = [PlotAllCallback(test_episodes, 200, self.visualize)]
         winrate_callback = CheckWinrateCallback()
         test_callbacks.append(winrate_callback)
         if self.step_through_test:
@@ -297,7 +334,7 @@ class DQNFantasyFootballAgent(KerasRLAgent):
         memory = SequentialMemory(limit=50000, window_length=1)
         dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=256,
                        enable_dueling_network=True,
-                       target_model_update=1e-2, policy=InformedBoltzmannGumbelQPolicy(self.env),
+                       target_model_update=1e-2, policy=InformedGreedyQPolicy(self.env),
                        test_policy=InformedGreedyQPolicy(self.env), batch_size=128, train_interval=128)
         dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
@@ -315,40 +352,48 @@ class ConvDQNFantasyFootballAgent(KerasRLAgent):
     """
     A DQN
     """
-    def __init__(self, env, initial_weights_file=None, step_through_test=False):
+    def __init__(self, env, first_kernel_size, kernel_size, initial_weights_file=None, step_through_test=False, visualize=False):
         """
+        :param int first_kernel_size: width of the first kernel
+        :param int kernel_size: width of the other kernels
         :param env: Gym environment to learn in
         :param str initial_weights: optional. path to the h5f file which contains the initial weights.
         """
-        super().__init__(env, step_through_test=step_through_test)
+        super().__init__(env, step_through_test=step_through_test,visualize=visualize)
 
         self.initial_weights_file = initial_weights_file
+        self.first_kernel_size = first_kernel_size
+        self.kernel_size = kernel_size
+
 
     def build(self):
         """
-        Builds the full Keras model and stores it in self.model.
+        Builds the full Keras model
         """
         nb_actions = self.env.action_space.n
         obs_dim = len(self.env.observation_space.spaces)
         obs_dim_2 = self.env.observation_space.spaces[0].shape
         in_x = x = Input((1, obs_dim, obs_dim_2))
 
+        # the FF observation is
+        # really best thought of as a stack of multiple channels, each 1x(num_players).
+        # In other words, you can think of the game "board" as being 1 dimensional (1 "cell" for each player), but we have multiple
+        # different bits of information about each player, one bit of info per channel.
+        # So we'll re-order it to fit that so the channels come first
+        x = Permute((2, 1, 3))(x)
+
+        # our kernel will always have a height of 1 since each channel always has a height of 1
         # (batch, channels, height, width)
-        x = Conv2D(filters=256, kernel_size=(obs_dim, 1), strides=(obs_dim, 1), padding="same",
+        x = Conv2D(filters=256, kernel_size=(1, self.first_kernel_size), padding="same",
                    data_format="channels_first", use_bias=False, kernel_regularizer=l2(1e-4),
                    name="input_conv-5-256")(x)
         x = BatchNormalization(axis=1, name="input_batchnorm")(x)
         x = Activation("relu", name="input_relu")(x)
-        # reshape it so it actually makes sense to learn more features on it
-        x = Permute((2, 1, 3))(x)
 
         for i in range(7):
             x = self._build_residual_block(x, i + 1)
 
-        res_out = x
-
         # for Q value output
-        x = Permute((2,1,3))(res_out)
         x = Conv2D(filters=4, kernel_size=1, data_format="channels_first", use_bias=False,
                    kernel_regularizer=l2(1e-4),
                    name="policy_conv-1-2")(x)
@@ -364,15 +409,14 @@ class ConvDQNFantasyFootballAgent(KerasRLAgent):
     def _build_residual_block(self, x, index):
         in_x = x
         res_name = "res" + str(index)
-        x = Conv2D(filters=256, kernel_size=(256, 1), strides=(256, 1), padding="same",
+        # as said before, kernel only has a height of 1 because our game "board" basically is 1d
+        x = Conv2D(filters=256, kernel_size=(1, self.kernel_size), padding="same",
                    data_format="channels_first", use_bias=False, kernel_regularizer=l2(1e-4))(x)
         x = BatchNormalization(axis=1, name=res_name + "_batchnorm1")(x)
         x = Activation("relu", name=res_name + "_relu1")(x)
-        x = Permute((2, 1, 3))(x)
-        x = Conv2D(filters=256, kernel_size=(256,1), strides=(256, 1), padding="same",
+        x = Conv2D(filters=256, kernel_size=(1, self.kernel_size), padding="same",
                    data_format="channels_first", use_bias=False, kernel_regularizer=l2(1e-4))(x)
         x = BatchNormalization(axis=1, name="res" + str(index) + "_batchnorm2")(x)
-        x = Permute((2, 1, 3))(x)
         x = Add(name=res_name + "_add")([in_x, x])
         x = Activation("relu", name=res_name + "_relu2")(x)
         return x
