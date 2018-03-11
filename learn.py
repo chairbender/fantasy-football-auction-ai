@@ -131,7 +131,7 @@ register(
 
 #performance -
 
-ENV_NAME = 'TestEnv-v1'
+ENV_NAME = 'TestEnv-v2'
 
 # Get the environment and extract the number of actions.
 env = gym.make(ENV_NAME)
@@ -140,7 +140,7 @@ env = gym.make(ENV_NAME)
 #agent = ShallowDQNFantasyFootballAgent(env)
 #agent = DQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0_DQNFantasyFootballAgent_params.wip.h5f')
 #agent = ConvDQNFantasyFootballAgent(env,'dqn_FantasyFootballAuction-2OwnerSmallRosterSimpleScriptedOpponent-v0_ConvDQNFantasyFootballAgent_params.wip.h5f')
-agent = ConvDQNFantasyFootballAgent(env, 1, 3, 'dqn_{}_ConvDQNFantasyFootballAgent_params.wip.h5f'.format(ENV_NAME), step_through_test=False, visualize=False)
+agent = ConvDQNFantasyFootballAgent(env, 5, 3, 'dqn_{}_ConvDQNFantasyFootballAgent_params.wip.h5f'.format(ENV_NAME), step_through_test=False, visualize=False)
 
 #cProfile.run('agent.learn()', sort='tottime')
 agent.learn(plot=True,train_steps=1000, test_episodes=10)

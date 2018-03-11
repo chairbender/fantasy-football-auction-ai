@@ -37,7 +37,7 @@ class PlotAllCallback(Callback):
 
         # visualize first conv filter weights
         #plt.subplot2grid((2, 3), (0, 1), rowspan=2, colspan=2)
-        #cnn_weights = np.squeeze(self.model.model.layers[2].get_weights())
+        #cnn_weights = np.squeeze(self.model.model.layers[2].get_weights()[0])
         #plt.imshow(cnn_weights, interpolation="nearest", aspect="auto")
 
     def __init__(self, every=100, max=200, visualize=False):
